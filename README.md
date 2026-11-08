@@ -12,3 +12,9 @@ Upgrade with `brew upgrade --cask caret`. Releases are ad-hoc signed until a Dev
 clears the quarantine attribute after installing; see the Caret [install guide](https://github.com/Fast-Editor/Caret/blob/main/docs/INSTALL.md).
 
 The cask previously lived in `fast-editor/lynkr`; that copy is deprecated and points here.
+
+## Maintenance
+
+The cask follows the latest published [Caret release](https://github.com/Fast-Editor/Caret/releases) automatically:
+`.github/workflows/bump-caret.yml` runs every 30 minutes (and on demand with `gh workflow run bump-caret.yml -f tag=vX.Y.Z`),
+reads `SHA256SUMS.txt` from the release and rewrites the version and both DMG checksums.

@@ -1,0 +1,79 @@
+name: Bump Caret cask
+
+# Keeps Casks/caret.rb at the latest *published* Caret release. Runs every 30 minutes and on demand; needs no secrets
+# because it only reads the public Caret repository and pushes to this one with the workflow's own token.
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Caret release tag (vX.Y.Z); default is the latest published release'
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump-caret
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the release to track
+        id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TAG" ]; then
+            # `gh release view` without a tag resolves the latest published, non-draft, non-prerelease release.
+            TAG=$(gh release view --repo Fast-Editor/Caret --json tagName --jq .tagName)
+          fi
+          VERSION=${TAG#v}
+          CURRENT=$(sed -n 's/^  version "\(.*\)"$/\1/p' Casks/caret.rb)
+          echo "release $TAG (version $VERSION); cask has $CURRENT"
+          { echo "tag=$TAG"; echo "version=$VERSION"; echo "current=$CURRENT"; } >> "$GITHUB_OUTPUT"
+
+      - name: Rewrite version and checksums
+        if: steps.rel.outputs.version != steps.rel.outputs.current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.rel.outputs.tag }}
+          VERSION: ${{ steps.rel.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --repo Fast-Editor/Caret --pattern SHA256SUMS.txt --output sums.txt --clobber
+          ARM=$(awk -v f="Caret_${VERSION}_aarch64.dmg" '$2 == f { print $1 }' sums.txt)
+          INTEL=$(awk -v f="Caret_${VERSION}_x64.dmg" '$2 == f { print $1 }' sums.txt)
+          rm -f sums.txt
+          if [ ${#ARM} -ne 64 ] || [ ${#INTEL} -ne 64 ]; then
+            echo "::error::SHA256SUMS.txt for $TAG has no entry for both DMGs (arm='$ARM' intel='$INTEL'); cask left unchanged"
+            exit 1
+          fi
+          sed -i -E "s/^  version \".*\"$/  version \"${VERSION}\"/" Casks/caret.rb
+          sed -i -E "s/^(  sha256 arm:   \")[0-9a-f]{64}(\",)$/\1${ARM}\2/" Casks/caret.rb
+          sed -i -E "s/^(         intel: \")[0-9a-f]{64}(\")$/\1${INTEL}\2/" Casks/caret.rb
+          grep -q "version \"${VERSION}\"" Casks/caret.rb
+          grep -q "${ARM}" Casks/caret.rb
+          grep -q "${INTEL}" Casks/caret.rb
+          ruby -c Casks/caret.rb
+          git --no-pager diff
+
+      - name: Commit and push
+        if: steps.rel.outputs.version != steps.rel.outputs.current
+        env:
+          VERSION: ${{ steps.rel.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Casks/caret.rb
+          if git diff --cached --quiet; then echo "nothing to commit"; exit 0; fi
+          git commit -m "caret: ${VERSION}"
+          git push
