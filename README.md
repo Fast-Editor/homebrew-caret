@@ -4,6 +4,7 @@ Homebrew cask for [Caret](https://github.com/Fast-Editor/Caret), the Cursor-clas
 
 ```sh
 brew tap fast-editor/caret
+brew trust fast-editor/caret   # Homebrew 7 asks once before loading a third-party tap
 brew install --cask caret
 ```
 
